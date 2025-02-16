@@ -2,105 +2,135 @@ import argparse
 from fontTools.ttLib import TTFont
 from fontTools.subset import Subsetter, Options
 from pathlib import Path
+from typing import Optional, Set, Dict, Union
 import re
 import random
 import json
 import os, sys
+from uuid import uuid4
+import copy
 
-# Step 1: 裁剪文字文件，只保留必须的文本，减少大小
-def trim_font(input_font_path, output_font_path, input_text_path):
-    # 加载字体文件
-    font = TTFont(input_font_path, fontNumber=0) # ttc类型字体需要指定fontNumber
+PathLike = Union[str, os.PathLike]
 
-    # 创建 Subsetter 对象
-    options = Options()
-    options.ignore_missing_glyphs = True  # 忽略缺少的字符
-    subsetter = Subsetter(options=options)
+class FontEncryptor:
+    font_path: Path
+    pattern: str
+    skip_char_set: Set[str]
+    seed: int
 
-    # 指定需要包含的字符
-    subsetter.populate(text=Path(input_text_path).read_text(encoding="utf-8"))
+    def __init__(self, font_path: PathLike, pattern: Optional[str]=r'[\u4e00-\u9fff]', skip_str: str="", seed: int=42) -> None:
+        self.font_path = Path(font_path)
+        if pattern:
+            self.pattern = pattern
+        else:
+            self.pattern = r"[\s\S]"
 
-    # 裁剪字体文件
-    subsetter.subset(font)
+        if skip_str:
+            self.skip_char_set = self.get_valid_char_set(skip_str)
+        else:
+            self.skip_char_set = set()
 
-    # 保存裁剪后的字体
-    font.save(output_font_path)
+        self.seed = seed
+        # 创建 Subsetter 对象
+        options = Options()
+        options.ignore_missing_glyphs = True  # 忽略缺少的字符
+        self.subsetter = Subsetter(options=options)
+        pass
 
-# Step 2: 生成解密字体和加密文本（仅处理汉字）
-def generate_encryption(input_txt_path, trimmed_font_path, output_encrypted_txt, output_decrypt_font, skip_set_path=None, seed=42):
-    # 提取文本内容
-    with open(input_txt_path, 'r', encoding='utf-8') as file:
-        content = file.read()
+    def get_valid_char_set(self,text: str):
+        char_set = set(re.findall(self.pattern, text))
+        if not char_set:
+            raise ValueError(f"无有效字符")
+        return char_set
 
-    # 提取唯一汉字集合
-    chinese_char_set = sorted(set(re.findall(r'[\u4e00-\u9fff]', content)))
+    def trim_font(self, text: str, fontNumber=0):
+        font = TTFont(self.font_path, fontNumber = fontNumber) # ttc类型字体需要指定fontNumber
+        char_set = self.get_valid_char_set(text) - self.skip_char_set
+        self.subsetter.populate(text= "".join(c for c in char_set if c) )
+        self.subsetter.subset(font)
+        return font
 
-    # 验证字符集合非空
-    if not chinese_char_set:
-        raise ValueError("No Chinese characters found in the input text.")
+    def generate_char_map(self, text: str):
+        char_set = sorted(self.get_valid_char_set(text) - self.skip_char_set)
+        # 生成随机映射
+        shuffled_chars = list(char_set)
+        random.seed(self.seed)
+        random.shuffle(shuffled_chars)
+        char_map:dict[str, str] = dict(zip(char_set, shuffled_chars))
+        return char_map
 
-    # 如果有跳过字符集，则加载并跳过指定的汉字
-    skip_char_set = set()
-    if skip_set_path:
-        with open(skip_set_path, 'r', encoding='utf-8') as file:
-            skip_char_set = set(re.findall(r'[\u4e00-\u9fff]', file.read()))
+    def encrypt_text(self, text: str, char_map: Dict[str, str]):
+        encrypt_char = lambda c : char_map.get(c, c) # 如果字符在映射表中，替换为原文；否则保持原样
+        return ''.join(encrypt_char(c) for c in text)
 
-    # 移除跳过的汉字
-    chinese_char_set = [char for char in chinese_char_set if char not in skip_char_set]
+    def decrypt_text(self, text: str, char_map: Dict[str, str]):
+        decrypt_map = {v: k for k, v in char_map.items()}
+        decrypt_char = lambda c : decrypt_map.get(c, c)
+        return ''.join(decrypt_char(c) for c in text)
 
-    if not chinese_char_set:
-        raise ValueError("No Chinese characters available for encryption after skipping.")
-
-    # 生成随机映射
-    shuffled_chars = chinese_char_set[:]
-    random.seed(seed)
-    random.shuffle(shuffled_chars)
-    char_map = dict(zip(chinese_char_set, shuffled_chars))
-    reverse_char_map = {v: k for k, v in char_map.items()}
-
-    # 替换文本中的汉字
-    def encrypt_char(c):
-        return char_map.get(c, c)  # 汉字加密，非汉字保持原样
-
-    encrypted_text = ''.join(encrypt_char(c) for c in content)
-
-    encrypted_dir = os.path.dirname(output_encrypted_txt)
-    font_dir = os.path.dirname(output_decrypt_font)
-
-    if font_dir:
-        os.makedirs(font_dir, exist_ok=True)
-
-    if encrypted_dir:
-        os.makedirs(encrypted_dir, exist_ok=True)
-
-    with open(output_encrypted_txt, 'w', encoding='utf-8') as file:
-        file.write(encrypted_text)
-
-    # 修改字体映射（仅对汉字进行映射调整）
-    font = TTFont(trimmed_font_path)
-    cmap_table = font['cmap'].getcmap(3, 1)
-    cmap = cmap_table.cmap
-    new_cmap = {ord(k): cmap[ord(v)] for k, v in reverse_char_map.items() if ord(v) in cmap}
-    cmap_table.cmap = new_cmap
-    font.save(output_decrypt_font)
+    def generate_decrypt_font(self, font: TTFont, char_map: Dict[str, str]):
+        new_font = copy.deepcopy(font)
+        decrypt_map = {v: k for k, v in char_map.items()}
+        cmap_table = new_font['cmap'].getcmap(3, 1) # type: ignore
+        cmap = cmap_table.cmap
+        new_cmap = {ord(k): cmap[ord(v)] for k, v in decrypt_map.items() if ord(v) in cmap}
+        cmap_table.cmap = new_cmap
+        return new_font
 
 def main():
     base_path = os.path.abspath(sys.argv[0])
     base_dir = os.path.dirname(base_path)
 
-    msyh_path = os.path.join(base_dir, "msyh.ttc")
-    trim_path = os.path.join(base_dir, "trim.ttc")
+    font_path = os.path.join(base_dir, "msyh.ttc")
+    skip_char_path = os.path.join(base_dir, "traditional_simplified_charset.txt")
 
     parser = argparse.ArgumentParser(description="Font and text encryption tool.")
-    parser.add_argument("-f", "--file", required=True, help="Path to the input text file.")
-    parser.add_argument("-s", "--save", required=True, help="Path to the output encrypted text file.")
-    parser.add_argument("-t", "--woff", required=True, help="Path to the output decryption font file.")
-    parser.add_argument("--skip-set", help="Path to a text file containing characters to skip from encryption.")
-
+    parser.add_argument("-e", "--encrypt", action="store_true", help="Encryption mode (Default)")
+    parser.add_argument("-d", "--decrypt", action="store_true", help="Decryption mode")
+    parser.add_argument("-f", "--file", required=True, help="Path to the input text file")
+    parser.add_argument("-s", "--save", required=True, help="Path to the output text file")
+    parser.add_argument("-t", "--woff", help="Path to the output decryption woff font file in ENCRYPTION")
+    parser.add_argument("-savemap", "--save-char-map", help="Path to the output char map json in ENCRYPTION")
+    parser.add_argument("--seed", help="A random seed for generation of char map in ENCRYPTION")
+    parser.add_argument("-map", "--char-map", help="Path to a char map json that will be used in ENCRYPTION or DECRYPTION")
     args = parser.parse_args()
 
-    trim_font(msyh_path, trim_path, args.file)
-    generate_encryption(args.file, trim_path, args.save, args.woff, skip_set_path=args.skip_set)
+    def write_text(file_path: str, text: str):
+        Path(file_path).write_text(text, encoding="utf-8")
+    def read_text(file_path: str) -> str:
+        return Path(file_path).read_text(encoding="utf-8")
+
+    if args.decrypt:
+        if not args.char_map:
+            raise ValueError("Decryption mode needs a char map, use `-m` to specify one")
+        text = read_text(args.file)
+        encryptor = FontEncryptor(font_path, skip_str=read_text(skip_char_path))
+        char_map = json.loads(read_text(args.char_map))
+        decrypted_text = encryptor.decrypt_text(text, char_map)
+        write_text(args.save, decrypted_text)
+    else:
+        text = read_text(args.file)
+        encryptor = FontEncryptor(font_path, skip_str=read_text(skip_char_path))
+
+        # 裁剪字体
+        trimmed_font = encryptor.trim_font(text)
+
+        # 生成char map
+        if args.char_map:
+            char_map = json.loads(read_text(args.char_map))
+        else:
+            char_map = encryptor.generate_char_map(text)
+        if(args.save_char_map):
+            write_text(args.save_char_map, json.dumps(char_map,ensure_ascii=False, indent=4))
+        # 生成加密文字
+        encrypted_text = encryptor.encrypt_text(text, char_map)
+        write_text(args.save, encrypted_text)
+        # 生成解密字体
+        if args.woff:
+            if(not args.woff.endswith(".woff")):
+                raise ValueError("The output woff font path must be ended with .woff")
+            decrypt_font = encryptor.generate_decrypt_font(trimmed_font, char_map)
+            decrypt_font.save(args.woff)
 
 if __name__ == "__main__":
     main()
