@@ -1,1 +1,0 @@
-python encryptor.py -f input.txt -s output.txt -t decrypt_font.woff --skip-set traditional_simplified_charset.txt
