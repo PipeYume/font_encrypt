@@ -192,7 +192,7 @@ def main():
 
             # 为字体添加扰动，默认为大小1，频率0.2的扰动
             if args.noise:
-                decrypt_font = encryptor.distortGlyphs(decrypt_font, char_map.values(), noise=1, frequency=1)
+                decrypt_font = encryptor.distortGlyphs(decrypt_font, char_map.values(), noise=1, frequency=0.2)
 
             if(args.font_output.endswith('.b64')):
                 decrypt_font.flavor = 'woff'

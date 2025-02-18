@@ -12,6 +12,7 @@
 - **文本解密**：使用已保存的字符映射表，将密文还原为原始文本。
 - **字体子集化**：生成只包含加密字符的精简字体。
 - **加密字体生成**：创建用于解密字体文件，以便在 Web 端使用。
+- **扰动字形**：在生成的字体中添加微小的扰动，增加保护效果。
 
 ## 依赖项
 
@@ -24,14 +25,15 @@ pip install fonttools
 ## 直接使用 encryptor.py 的注意事项
 
 1. 生成的字体文件若指定的路径后缀为`.b64`，则生成的是其 `woff` 格式的 base64 编码。若指定的路径后缀为`.ttx`，则生成的是字体的 `XML` 版本。
-2. 加密的字符是 所有汉字：`pattern=r'[\u4e00-\u9fff]'`，跳过加密的字符为 `traditional_simplified_charset.txt` 中的字符（繁简转换影响的字符），因为一些网站具有繁简切换功能，加密这些字符的话，在切换繁简后无法正确解密。
+2. 加密字符为所有的汉字：`pattern=r'[\u4e00-\u9fff]'`，
+3. 以下文件的字符会跳过加密： `traditional_simplified_charset.txt` 中的字符（繁简转换影响的字符），因为一些网站具有繁简切换功能，加密这些字符的话，在切换繁简后无法正确解密。
 
 ## 使用方法
 
 ### 1. 运行加密模式
 
 ```bash
-python encryptor.py -f input.txt -s encrypt.txt -fi SourceHanMonoSC-Regular.otf -fo decrypt.woff -savemap char_map.json
+python encryptor.py -f input.txt -s encrypt.txt -fi SourceHanMonoSC-Regular.otf -fo decrypt.woff -savemap char_map.json --noise
 ```
 
 **参数说明：**
@@ -44,6 +46,7 @@ python encryptor.py -f input.txt -s encrypt.txt -fi SourceHanMonoSC-Regular.otf 
 - `-fo, --font-output`：生成解密用字体文件
 - `--seed`：影响char_map生成的随机数种子
 - `-map, --char-map`：用于加密的字符映射 JSON 文件（使用时，不会生成新的char_map）
+- `-n, --noise`：是否添加字形扰动（防止直接通过字形来快速逆向出原文字）。添加后会将大概20%的笔画偏移1字体单位。
 
 #### 使用自定义字符映射加密
 
@@ -97,7 +100,7 @@ python encryptor.py -d -f encrypt.txt -s decrypt.txt -map char_map.json
 你好，世界！
 ```
 
-## 你也可以手动使用 `FontEncryptor` 来实现更个性化的加解密
+## 你也可以手动使用 `FontEncryptor` 类来实现更个性化的加解密
 
 ### 初始化参数
 
@@ -133,6 +136,9 @@ encrypted_text = encryptor.encrypt_text(text, char_map)
 
 # 生成解密字体
 decrypt_font = encryptor.generate_decrypt_font(trimmed_font, char_map)
+
+# 添加字形扰动
+decrypt_font = encryptor.distortGlyphs(decrypt_font, char_map.values(), noise=1, frequency=0.2)
 
 decrypt_font.save("decrypt.woff")
 
