@@ -91,7 +91,7 @@ def main():
     parser.add_argument("-fi", "--font-input", required=True, help="Path to the input font file")
     parser.add_argument("-fo", "--font-output", help="Path to the output decryption woff font file in ENCRYPTION")
     parser.add_argument("-savemap", "--save-char-map", help="Path to the output char map json in ENCRYPTION")
-    parser.add_argument("--seed", help="A random seed for generation of char map in ENCRYPTION")
+    parser.add_argument("-seed", "--seed", help="A random seed for generation of char map in ENCRYPTION")
     parser.add_argument("-map", "--char-map", help="Path to a char map json that will be used in ENCRYPTION or DECRYPTION")
     args = parser.parse_args()
 
