@@ -6,8 +6,7 @@ from typing import Optional, Set, Dict, Union
 import re
 import random
 import json
-import os, sys
-from uuid import uuid4
+import os, sys, io, base64
 import copy
 
 PathLike = Union[str, os.PathLike]
@@ -15,7 +14,9 @@ PathLike = Union[str, os.PathLike]
 class FontEncryptor:
     font_path: Path
     pattern: str
+    '''正则匹配需要加密的字'''
     skip_char_set: Set[str]
+    '''跳过不需要加密的字'''
     seed: int
 
     def __init__(self, font_path: PathLike, pattern: Optional[str]=r'[\u4e00-\u9fff]', skip_str: str="", seed: int=42) -> None:
@@ -45,8 +46,7 @@ class FontEncryptor:
 
     def trim_font(self, text: str, fontNumber=0):
         font = TTFont(self.font_path, fontNumber = fontNumber) # ttc类型字体需要指定fontNumber
-        char_set = self.get_valid_char_set(text) - self.skip_char_set
-        self.subsetter.populate(text= "".join(c for c in char_set if c) )
+        self.subsetter.populate(text=text)
         self.subsetter.subset(font)
         return font
 
@@ -81,7 +81,6 @@ def main():
     base_path = os.path.abspath(sys.argv[0])
     base_dir = os.path.dirname(base_path)
 
-    font_path = os.path.join(base_dir, "msyh.ttc")
     skip_char_path = os.path.join(base_dir, "traditional_simplified_charset.txt")
 
     parser = argparse.ArgumentParser(description="Font and text encryption tool.")
@@ -89,7 +88,8 @@ def main():
     parser.add_argument("-d", "--decrypt", action="store_true", help="Decryption mode")
     parser.add_argument("-f", "--file", required=True, help="Path to the input text file")
     parser.add_argument("-s", "--save", required=True, help="Path to the output text file")
-    parser.add_argument("-t", "--woff", help="Path to the output decryption woff font file in ENCRYPTION")
+    parser.add_argument("-fi", "--font-input", required=True, help="Path to the input font file")
+    parser.add_argument("-fo", "--font-output", help="Path to the output decryption woff font file in ENCRYPTION")
     parser.add_argument("-savemap", "--save-char-map", help="Path to the output char map json in ENCRYPTION")
     parser.add_argument("--seed", help="A random seed for generation of char map in ENCRYPTION")
     parser.add_argument("-map", "--char-map", help="Path to a char map json that will be used in ENCRYPTION or DECRYPTION")
@@ -104,13 +104,13 @@ def main():
         if not args.char_map:
             raise ValueError("Decryption mode needs a char map, use `-m` to specify one")
         text = read_text(args.file)
-        encryptor = FontEncryptor(font_path, skip_str=read_text(skip_char_path))
+        encryptor = FontEncryptor(args.font_input, skip_str=read_text(skip_char_path))
         char_map = json.loads(read_text(args.char_map))
         decrypted_text = encryptor.decrypt_text(text, char_map)
         write_text(args.save, decrypted_text)
     else:
         text = read_text(args.file)
-        encryptor = FontEncryptor(font_path, skip_str=read_text(skip_char_path))
+        encryptor = FontEncryptor(args.font_input, skip_str=read_text(skip_char_path))
 
         # 裁剪字体
         trimmed_font = encryptor.trim_font(text)
@@ -122,15 +122,24 @@ def main():
             char_map = encryptor.generate_char_map(text)
         if(args.save_char_map):
             write_text(args.save_char_map, json.dumps(char_map,ensure_ascii=False, indent=4))
+        
         # 生成加密文字
         encrypted_text = encryptor.encrypt_text(text, char_map)
         write_text(args.save, encrypted_text)
-        # 生成解密字体
-        if args.woff:
-            if(not args.woff.endswith(".woff")):
-                raise ValueError("The output woff font path must be ended with .woff")
+
+        # 生成解密字体，如果以b64结尾，则直接生成其 woff 格式的 base64 文本
+        if args.font_output:
             decrypt_font = encryptor.generate_decrypt_font(trimmed_font, char_map)
-            decrypt_font.save(args.woff)
+            if(args.font_output.endswith('b64')):
+                decrypt_font.flavor = 'woff'
+                buffer = io.BytesIO()
+                decrypt_font.save(buffer)
+                buffer.seek(0)
+                base64_str = base64.b64encode(buffer.read()).decode("utf-8")
+                write_text(args.font_output, base64_str)
+                pass
+            else:
+                decrypt_font.save(args.font_output)
 
 if __name__ == "__main__":
     main()

@@ -11,12 +11,7 @@
 - **文本加密**：对文本内容进行字符替换加密，生成不可读但可逆的密文。
 - **文本解密**：使用已保存的字符映射表，将密文还原为原始文本。
 - **字体子集化**：生成只包含加密字符的精简字体。
-- **加密字体生成**：创建用于解密的 `.woff` 字体文件，以便在 Web 端使用。如需创建其它类型的字体，请将代码中的以下部分注释掉
-
-```python
-if(not args.woff.endswith(".woff")):
-    raise ValueError("The output woff font path must be ended with .woff")
-```
+- **加密字体生成**：创建用于解密字体文件，以便在 Web 端使用。
 
 ## 依赖项
 
@@ -28,16 +23,15 @@ pip install fonttools
 
 ## 直接使用 encryptor.py 的注意事项
 
-1. 字体文件路径默认为 `msyh.ttc`，可根据需要修改。
-2. 生成的字体适用于默认格式强制为 `.woff`。
-3. 加密的字符是 所有汉字：`pattern=r'[\u4e00-\u9fff]'`，跳过加密的字符为 `traditional_simplified_charset.txt` 中的字符（繁简转换影响的字符），因为一些网站具有繁简切换功能，加密这些字符的话，在切换繁简后无法正确解密。
+1. 生成的字体文件若指定的路径后缀为`.b64`，则生成的是其 `woff` 格式的 base64 编码。
+2. 加密的字符是 所有汉字：`pattern=r'[\u4e00-\u9fff]'`，跳过加密的字符为 `traditional_simplified_charset.txt` 中的字符（繁简转换影响的字符），因为一些网站具有繁简切换功能，加密这些字符的话，在切换繁简后无法正确解密。
 
 ## 使用方法
 
 ### 1. 运行加密模式
 
 ```bash
-python encryptor.py -f input.txt -s encrypted.txt -savemap char_map.json -t decrypt_font.woff
+python encryptor.py -f input.txt -s encrypt.txt -fi SourceHanMonoSC-Regular.otf -fo decrypt.woff -savemap char_map.json
 ```
 
 **参数说明：**
@@ -46,7 +40,8 @@ python encryptor.py -f input.txt -s encrypted.txt -savemap char_map.json -t decr
 - `-f, --file`：输入文本文件
 - `-s, --save`：加密后的输出文本文件
 - `-savemap, --save-char-map`：输出字符映射 JSON 文件
-- `-t, --woff`：生成解密用 `.woff` 字体文件
+- `-fi, --font-input`：输入字体文件
+- `-fo, --font-output`：生成解密用字体文件，`.b64`后缀时是woff格式字体的base64编码。
 - `--seed`：影响char_map生成的随机数种子
 - `-map, --char-map`：用于加密的字符映射 JSON 文件（使用时，不会生成新的char_map）
 
@@ -55,13 +50,13 @@ python encryptor.py -f input.txt -s encrypted.txt -savemap char_map.json -t decr
 如果想使用已有的字符映射进行加密，可通过 `-map` 指定 JSON 文件。
 
 ```bash
-python encryptor.py -f input.txt -s encrypted.txt -map char_map.json
+python encryptor.py -f input.txt -s encrypt.txt -fi SourceHanMonoSC-Regular.otf -fo decrypt.woff -map char_map.json
 ```
 
 ### 2. 运行解密模式
 
 ```bash
-python encryptor.py -d -f encrypted.txt -s decrypted.txt -map char_map.json
+python encryptor.py -d -f encrypt.txt -s decrypt.txt -map char_map.json
 ```
 
 **参数说明：**
@@ -109,8 +104,8 @@ python encryptor.py -d -f encrypted.txt -s decrypted.txt -map char_map.json
 ```python
 FontEncryptor(
     font_path: PathLike,  # 字体文件路径
-    pattern: Optional[str] = r'[\u4e00-\u9fff]',  # 正则匹配的字符模式，默认匹配汉字字符
-    skip_str: str = "",  # 需要跳过的字符
+    pattern: Optional[str] = r'[\u4e00-\u9fff]',  # 正则匹配需要加密的字
+    skip_str: str = "",  # 跳过不需要加密的字
     seed: int = 42  # 随机种子，影响char_map
 )
 ```
@@ -119,11 +114,13 @@ FontEncryptor(
 
 ```python
 from encryptor import FontEncryptor
+from pathlib import Path
 
-text = "需要加密的文本"
+# 读取文本文件
+text = Path("input.txt").read_text(encoding="utf-8")
 
 # 初始化 FontEncryptor
-encryptor = FontEncryptor("msyh.ttc", skip_str="跳过的字符", seed=42)
+encryptor = FontEncryptor("SourceHanMonoSC-Regular.otf", skip_str="跳过的字符", seed=42)
 
 # 裁剪字体
 trimmed_font = encryptor.trim_font(text)
@@ -137,7 +134,7 @@ encrypted_text = encryptor.encrypt_text(text, char_map)
 # 生成解密字体
 decrypt_font = encryptor.generate_decrypt_font(trimmed_font, char_map)
 
-decrypt_font.save("output.woff")
+decrypt_font.save("decrypt.woff")
 
 # 解密文本
 decrypted_text = encryptor.decrypt_text(encrypted_text, char_map)
