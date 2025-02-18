@@ -110,7 +110,7 @@ def main():
         write_text(args.save, decrypted_text)
     else:
         text = read_text(args.file)
-        encryptor = FontEncryptor(args.font_input, skip_str=read_text(skip_char_path))
+        encryptor = FontEncryptor(args.font_input, skip_str=read_text(skip_char_path), seed=args.seed if args.seed else 42)
 
         # 裁剪字体
         trimmed_font = encryptor.trim_font(text)
