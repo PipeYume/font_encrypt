@@ -204,9 +204,9 @@ def main():
             elif(args.font_output.endswith('.ttx')):
                 decrypt_font.saveXML(args.font_output)
             else:
-                if(args.font_out.endswith('.woff')):
+                if(args.font_output.endswith('.woff')):
                     decrypt_font.flavor = 'woff'
-                elif(args.font_out.endswith('.woff2')):
+                elif(args.font_output.endswith('.woff2')):
                     decrypt_font.flavor = 'woff2'
                 else:
                     decrypt_font.flavor = None
