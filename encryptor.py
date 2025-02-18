@@ -139,7 +139,14 @@ def main():
     base_path = os.path.abspath(sys.argv[0])
     base_dir = os.path.dirname(base_path)
 
+
+    def write_text(file_path: str, text: str):
+        Path(file_path).write_text(text, encoding="utf-8")
+    def read_text(file_path: str):
+        return Path(file_path).read_text(encoding="utf-8")
+    
     skip_char_path = os.path.join(base_dir, "traditional_simplified_charset.txt")
+    traditional_simplified_charset = read_text(skip_char_path)
 
     parser = argparse.ArgumentParser(description="Font and text encryption tool.")
     parser.add_argument("-e", "--encrypt", action="store_true", help="Encryption mode (Default)")
@@ -154,25 +161,31 @@ def main():
     parser.add_argument("-n", "--noise", action="store_true", help="Whether add noise for glyph distortion in the output font")
     args = parser.parse_args()
 
-    def write_text(file_path: str, text: str):
-        Path(file_path).write_text(text, encoding="utf-8")
-    def read_text(file_path: str):
-        return Path(file_path).read_text(encoding="utf-8")
-
     if args.decrypt:
         if not args.char_map:
             raise ValueError("Decryption mode needs a char map, use `-m` to specify one")
         text = read_text(args.file)
-        encryptor = FontEncryptor(args.font_input, skip_str=read_text(skip_char_path))
+        encryptor = FontEncryptor(args.font_input, skip_str=traditional_simplified_charset)
         char_map = json.loads(read_text(args.char_map))
         decrypted_text = encryptor.decrypt_text(text, char_map)
         write_text(args.save, decrypted_text)
     else:
         text = read_text(args.file)
-        encryptor = FontEncryptor(args.font_input, skip_str=read_text(skip_char_path), seed=args.seed if args.seed else 42)
+        encryptor = FontEncryptor(args.font_input, skip_str=traditional_simplified_charset, seed=args.seed if args.seed else 42)
 
-        # 裁剪字体
-        trimmed_font = encryptor.trim_font(text)
+        # 裁剪字体，考虑字体的繁简转换，文章的繁简版本全部都要保留
+        text_set = set(text)
+        add_set = set()
+        simplified_chars = traditional_simplified_charset.split("\n")[0]
+        traditional_chars = traditional_simplified_charset.split("\n")[1]
+        simplified_to_traditional = dict(zip(simplified_chars, traditional_chars))
+        traditional_to_simplified = dict(zip(traditional_chars, simplified_chars))
+        for char in text_set:
+            if char in simplified_to_traditional:
+                add_set.add(simplified_to_traditional[char])
+            if char in traditional_to_simplified:
+                add_set.add(traditional_to_simplified[char])
+        trimmed_font = encryptor.trim_font(''.join(text_set.union(add_set)))
 
         # 生成char map
         if args.char_map:
