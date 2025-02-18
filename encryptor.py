@@ -178,13 +178,12 @@ def main():
         add_set = set()
         simplified_chars = traditional_simplified_charset.split("\n")[0]
         traditional_chars = traditional_simplified_charset.split("\n")[1]
-        simplified_to_traditional = dict(zip(simplified_chars, traditional_chars))
-        traditional_to_simplified = dict(zip(traditional_chars, simplified_chars))
-        for char in text_set:
-            if char in simplified_to_traditional:
-                add_set.add(simplified_to_traditional[char])
-            if char in traditional_to_simplified:
-                add_set.add(traditional_to_simplified[char])
+        # 这里不能用字典，因为一个简体/繁体字 可能对应 多个繁体/简体字
+        for c, t in zip(simplified_chars, traditional_chars):
+            if c in text_set:
+                add_set.add(t)
+            if t in text_set:
+                add_set.add(c)
         trimmed_font = encryptor.trim_font(''.join(text_set.union(add_set)))
 
         # 生成char map
