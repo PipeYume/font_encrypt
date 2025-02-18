@@ -130,7 +130,7 @@ def main():
         # 生成解密字体，如果以b64结尾，则直接生成其 woff 格式的 base64 文本
         if args.font_output:
             decrypt_font = encryptor.generate_decrypt_font(trimmed_font, char_map)
-            if(args.font_output.endswith('b64')):
+            if(args.font_output.endswith('.b64')):
                 decrypt_font.flavor = 'woff'
                 buffer = io.BytesIO()
                 decrypt_font.save(buffer)
@@ -138,6 +138,8 @@ def main():
                 base64_str = base64.b64encode(buffer.read()).decode("utf-8")
                 write_text(args.font_output, base64_str)
                 pass
+            if(args.font_output.endswith('.ttx')):
+                decrypt_font.saveXML(args.font_output)
             else:
                 decrypt_font.save(args.font_output)
 

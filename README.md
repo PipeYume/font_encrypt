@@ -23,7 +23,7 @@ pip install fonttools
 
 ## 直接使用 encryptor.py 的注意事项
 
-1. 生成的字体文件若指定的路径后缀为`.b64`，则生成的是其 `woff` 格式的 base64 编码。
+1. 生成的字体文件若指定的路径后缀为`.b64`，则生成的是其 `woff` 格式的 base64 编码。若指定的路径后缀为`.ttx`，则生成的是字体的 `XML` 版本。
 2. 加密的字符是 所有汉字：`pattern=r'[\u4e00-\u9fff]'`，跳过加密的字符为 `traditional_simplified_charset.txt` 中的字符（繁简转换影响的字符），因为一些网站具有繁简切换功能，加密这些字符的话，在切换繁简后无法正确解密。
 
 ## 使用方法
@@ -41,7 +41,7 @@ python encryptor.py -f input.txt -s encrypt.txt -fi SourceHanMonoSC-Regular.otf 
 - `-s, --save`：加密后的输出文本文件
 - `-savemap, --save-char-map`：输出字符映射 JSON 文件
 - `-fi, --font-input`：输入字体文件
-- `-fo, --font-output`：生成解密用字体文件，`.b64`后缀时是woff格式字体的base64编码。
+- `-fo, --font-output`：生成解密用字体文件
 - `--seed`：影响char_map生成的随机数种子
 - `-map, --char-map`：用于加密的字符映射 JSON 文件（使用时，不会生成新的char_map）
 
