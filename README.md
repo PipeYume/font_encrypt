@@ -22,7 +22,7 @@
 pip install fonttools
 ```
 
-## 直接使用 encryptor.py 的注意事项
+## 直接使用 `python encryptor.py` 或 `encryptor.exe` 的注意事项
 
 1. 生成的字体文件若指定的路径后缀为`.b64`，则生成的是其 `woff` 格式的 base64 编码。若指定的路径后缀为`.ttx`，则生成的是字体的 `XML` 版本。
 2. 裁剪的字符为 文章中所有的汉字的 简体+繁体版本。
