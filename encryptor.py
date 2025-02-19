@@ -197,7 +197,7 @@ def main():
         write_text(args.save, decrypted_text)
     else:
         text = read_text(args.file)
-        encryptor = FontEncryptor(skip_str=traditional_simplified_charset, seed=args.seed if args.seed else 42)
+        encryptor = FontEncryptor(skip_str=traditional_simplified_charset, seed=args.seed if args.seed else fastrand.pcg32bounded(1000000))
 
         # 裁剪字体，考虑字体的繁简转换，文章的繁简版本全部都要保留
         text_set = set(text)
