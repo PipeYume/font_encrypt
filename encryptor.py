@@ -47,7 +47,7 @@ class FontEncryptor:
         return char_set
 
     def get_trimmed_font(self,font_path: PathLike, text: str, fontNumber=0):
-        font = load_font(Path(font_path), Options(font_number=0))
+        font = load_font(font_path, Options(font_number=0))
         self.subsetter.populate(text=text)
         self.subsetter.subset(font)
         return font
@@ -57,7 +57,7 @@ class FontEncryptor:
         # 排除字体中没有的字
         if font:
             cmap = font.getBestCmap()
-            noexists_set = [char for char in char_set if cmap.get(ord(char))]
+            noexists_set = [char for char in char_set if not cmap.get(ord(char))]
             char_set = sorted(char_set - set(noexists_set))
         # 生成随机映射
         shuffled_chars = list(char_set)
@@ -86,27 +86,21 @@ class FontEncryptor:
             glyf = False
         else:
             raise ValueError("字体中不存在有效字形表")
-        glyph_cache = {}
+
         # 交换字形
+        # 对于TTF字体，这里访问 table__g_l_y_f 类型的元素要用 .glyphs 来访问
+        # 直接使用 glyph_table[galyph_name] 会导致额外执行 glyph.expand, 有巨额时间开销
+        glyph_cache = {}
+        table = table.glyphs if glyf else table
+        for name in table.keys():
+            glyph_cache[name] = table[name]
+
         for char, new_char in decrypt_map.items():
             glyph_name = cmap.get(ord(char))
             new_glyph_name = cmap.get(ord(new_char))
             if glyph_name is None or new_glyph_name is None:
                 continue
-            if glyf:
-                # 这里访问 table__g_l_y_f 类型的元素要用 .glyphs 来访问
-                # 直接使用 glyph_table[galyph_name] 会导致额外执行 glyph.expand, 有巨额时间开销
-                if new_glyph_name in glyph_cache:
-                    table.glyphs[glyph_name] = glyph_cache[new_glyph_name]
-                else:
-                    glyph_cache[glyph_name] = table.glyphs[glyph_name]
-                    table.glyphs[glyph_name] = table.glyphs[new_glyph_name]
-            else:
-                if new_glyph_name in glyph_cache:
-                    table[glyph_name] = glyph_cache[new_glyph_name]
-                else:
-                    glyph_cache[glyph_name] = table[glyph_name]
-                    table[glyph_name] = table[new_glyph_name]
+            table[glyph_name] = glyph_cache[new_glyph_name]
 
     def _add_noise_glyf(self, g: Glyph, table, frequency, noise):
         '''为 glyf 字形添加扰动'''
