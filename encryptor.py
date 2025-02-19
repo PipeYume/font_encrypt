@@ -1,7 +1,7 @@
 import argparse
 from fontTools.ttLib import TTFont
 from fontTools.ttLib.tables._g_l_y_f import Glyph
-from fontTools.subset import Subsetter, Options
+from fontTools.subset import Subsetter, Options, load_font, save_font
 from fontTools.misc.psCharStrings import T2CharString
 from fontTools.cffLib.specializer import programToCommands, commandsToProgram
 from pathlib import Path
@@ -51,7 +51,7 @@ class FontEncryptor:
         return char_set
 
     def get_trimmed_font(self, text: str, fontNumber=0):
-        font = TTFont(self.font_path, fontNumber = fontNumber) # ttc类型字体需要指定fontNumber
+        font = load_font(self.font_path, Options(font_number=0))
         self.subsetter.populate(text=text)
         self.subsetter.subset(font)
         return font
@@ -246,13 +246,14 @@ def main():
             elif(args.font_output.endswith('.ttx')):
                 decrypt_font.saveXML(args.font_output)
             else:
+                
                 if(args.font_output.endswith('.woff')):
-                    decrypt_font.flavor = 'woff'
+                    flavor = 'woff'
                 elif(args.font_output.endswith('.woff2')):
-                    decrypt_font.flavor = 'woff2'
+                    flavor = 'woff2'
                 else:
-                    decrypt_font.flavor = None
-                decrypt_font.save(args.font_output)
+                    flavor = None
+                save_font(decrypt_font,outfile=args.font_output,options=Options(flavor=flavor))
 
 if __name__ == "__main__":
     main()
