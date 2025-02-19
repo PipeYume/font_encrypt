@@ -105,7 +105,7 @@ python encryptor.py -d -f encrypt.txt -s decrypt.txt -map char_map.json
 ### 初始化参数
 
 ```python
-FontEncryptor(
+encryptor = FontEncryptor(
     font_path: PathLike,  # 字体文件路径
     pattern: Optional[str] = r'[\u4e00-\u9fff]',  # 正则匹配需要加密的字
     skip_str: str = "",  # 跳过不需要加密的字
@@ -125,8 +125,8 @@ text = Path("input.txt").read_text(encoding="utf-8")
 # 初始化 FontEncryptor
 encryptor = FontEncryptor("SourceHanMonoSC-Regular.otf", skip_str="跳过的字符", seed=42)
 
-# 裁剪字体
-trimmed_font = encryptor.trim_font(text)
+# 获取裁剪字体
+font = encryptor.get_trimmed_font(text)
 
 # 生成字符映射
 char_map = encryptor.generate_char_map(text)
@@ -134,13 +134,13 @@ char_map = encryptor.generate_char_map(text)
 # 生成加密文字
 encrypted_text = encryptor.encrypt_text(text, char_map)
 
-# 生成解密字体
-decrypt_font = encryptor.generate_decrypt_font(trimmed_font, char_map)
+# 将字体转化为解密字体
+encryptor.convert_to_decrypt_font(font, char_map)
 
-# 添加字形扰动
-decrypt_font = encryptor.distortGlyphs(decrypt_font, char_map.values(), noise=1, frequency=0.2)
+# 为字体添加字形扰动
+encryptor.distortFont(font, char_map.values(), noise=1, frequency=0.2)
 
-decrypt_font.save("decrypt.woff")
+font.save("decrypt.woff")
 
 # 解密文本
 decrypted_text = encryptor.decrypt_text(encrypted_text, char_map)
