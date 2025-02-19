@@ -17,15 +17,13 @@ import fastrand
 PathLike = Union[str, os.PathLike]
 
 class FontEncryptor:
-    font_path: Path
     pattern: re.Pattern
     '''正则匹配需要加密的字'''
     skip_char_set: Set[str]
     '''跳过不需要加密的字'''
     seed: int
 
-    def __init__(self, font_path: PathLike, pattern: Optional[str]=r'[\u4e00-\u9fff]', skip_str: str="", seed: int=42):
-        self.font_path = Path(font_path)
+    def __init__(self, pattern: Optional[str]=r'[\u4e00-\u9fff]', skip_str: str="", seed: int=42):
         if pattern:
             self.pattern = re.compile(pattern)
         else:
@@ -46,18 +44,21 @@ class FontEncryptor:
 
     def get_valid_char_set(self,text: str):
         char_set = set(self.pattern.findall(text))
-        if not char_set:
-            raise ValueError(f"无有效字符")
         return char_set
 
-    def get_trimmed_font(self, text: str, fontNumber=0):
-        font = load_font(self.font_path, Options(font_number=0))
+    def get_trimmed_font(self,font_path: PathLike, text: str, fontNumber=0):
+        font = load_font(Path(font_path), Options(font_number=0))
         self.subsetter.populate(text=text)
         self.subsetter.subset(font)
         return font
 
-    def generate_char_map(self, text: str):
-        char_set = sorted(self.get_valid_char_set(text) - self.skip_char_set)
+    def generate_char_map(self, text: str, font: Optional[TTFont]=None):
+        char_set = self.get_valid_char_set(text) - self.skip_char_set
+        # 排除字体中没有的字
+        if font:
+            cmap = font.getBestCmap()
+            noexists_set = [char for char in char_set if cmap.get(ord(char))]
+            char_set = sorted(char_set - set(noexists_set))
         # 生成随机映射
         shuffled_chars = list(char_set)
         random.shuffle(shuffled_chars)
@@ -90,6 +91,8 @@ class FontEncryptor:
         for char, new_char in decrypt_map.items():
             glyph_name = cmap.get(ord(char))
             new_glyph_name = cmap.get(ord(new_char))
+            if glyph_name is None or new_glyph_name is None:
+                continue
             if glyf:
                 # 这里访问 table__g_l_y_f 类型的元素要用 .glyphs 来访问
                 # 直接使用 glyph_table[galyph_name] 会导致额外执行 glyph.expand, 有巨额时间开销
@@ -161,8 +164,8 @@ class FontEncryptor:
         else:
             cmap = font.getBestCmap()
             for char in set(charSet):
-                glyph_name = cmap.get(ord(char))
-                add_noise(glyph_table[glyph_name], glyph_table, frequency, noise)
+                if glyph_name := cmap.get(ord(char)):
+                    add_noise(glyph_table[glyph_name], glyph_table, frequency, noise)
 
 def main():
     base_path = os.path.abspath(sys.argv[0])
@@ -200,7 +203,7 @@ def main():
         write_text(args.save, decrypted_text)
     else:
         text = read_text(args.file)
-        encryptor = FontEncryptor(args.font_input, skip_str=traditional_simplified_charset, seed=args.seed if args.seed else 42)
+        encryptor = FontEncryptor(skip_str=traditional_simplified_charset, seed=args.seed if args.seed else 42)
 
         # 裁剪字体，考虑字体的繁简转换，文章的繁简版本全部都要保留
         text_set = set(text)
@@ -213,13 +216,13 @@ def main():
                 add_set.add(t)
             if t in text_set:
                 add_set.add(c)
-        trimmed_font = encryptor.get_trimmed_font(''.join(text_set.union(add_set)))
+        trimmed_font = encryptor.get_trimmed_font(args.font_input,''.join(text_set.union(add_set)))
 
         # 生成char map
         if args.char_map:
             char_map = json.loads(read_text(args.char_map))
         else:
-            char_map = encryptor.generate_char_map(text)
+            char_map = encryptor.generate_char_map(text, trimmed_font)
         if(args.save_char_map):
             write_text(args.save_char_map, json.dumps(char_map,ensure_ascii=False, indent=4))
         

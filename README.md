@@ -26,7 +26,9 @@ pip install fonttools
 
 1. 生成的字体文件若指定的路径后缀为`.b64`，则生成的是其 `woff` 格式的 base64 编码。若指定的路径后缀为`.ttx`，则生成的是字体的 `XML` 版本。
 2. 裁剪的字符为 文章中所有的汉字的 简体+繁体版本。
-3. 加密字符为文章中所有的汉字：`pattern=r'[\u4e00-\u9fff]'`，但以下文件的字符会跳过加密： `traditional_simplified_charset.txt` 中的字符（繁简转换影响的字符），因为一些网站具有繁简切换功能，加密这些字符的话，在切换繁简后无法正确解密。
+3. 加密字符为文章中所有的汉字：`pattern=r'[\u4e00-\u9fff]'`，但以下字符会跳过加密：
+   * `traditional_simplified_charset.txt` 中的字符（繁简转换影响的字符），因为一些网站具有繁简切换功能，加密这些字符的话，在切换繁简后无法正确解密。
+   * font中不存在的字符（生成的char_map中也不会有font中不存在的字符）
 
 ## 使用方法
 
@@ -106,10 +108,9 @@ python encryptor.py -d -f encrypt.txt -s decrypt.txt -map char_map.json
 
 ```python
 encryptor = FontEncryptor(
-    font_path: PathLike,  # 字体文件路径
     pattern: Optional[str] = r'[\u4e00-\u9fff]',  # 正则匹配需要加密的字
     skip_str: str = "",  # 跳过不需要加密的字
-    seed: int = 42  # 随机种子，影响char_map
+    seed: int = 42  # 随机种子，影响char_map生成
 )
 ```
 
@@ -123,13 +124,13 @@ from pathlib import Path
 text = Path("input.txt").read_text(encoding="utf-8")
 
 # 初始化 FontEncryptor
-encryptor = FontEncryptor("SourceHanMonoSC-Regular.otf", skip_str="跳过的字符", seed=42)
+encryptor = FontEncryptor(skip_str="跳过的字符", seed=42)
 
 # 获取裁剪字体
-font = encryptor.get_trimmed_font(text)
+font = encryptor.get_trimmed_font("SourceHanMonoSC-Regular.otf", text)
 
 # 生成字符映射
-char_map = encryptor.generate_char_map(text)
+char_map = encryptor.generate_char_map(text, font)
 
 # 生成加密文字
 encrypted_text = encryptor.encrypt_text(text, char_map)
