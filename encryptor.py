@@ -10,13 +10,15 @@ import re
 import random
 import json
 import os, sys, io, base64
-import copy
+import fastrand
+# from fontTools.ttLib.tables._g_l_y_f import table__g_l_y_f
+# from fontTools.cffLib import CharStrings
 
 PathLike = Union[str, os.PathLike]
 
 class FontEncryptor:
     font_path: Path
-    pattern: str
+    pattern: re.Pattern
     '''正则匹配需要加密的字'''
     skip_char_set: Set[str]
     '''跳过不需要加密的字'''
@@ -25,16 +27,17 @@ class FontEncryptor:
     def __init__(self, font_path: PathLike, pattern: Optional[str]=r'[\u4e00-\u9fff]', skip_str: str="", seed: int=42):
         self.font_path = Path(font_path)
         if pattern:
-            self.pattern = pattern
+            self.pattern = re.compile(pattern)
         else:
-            self.pattern = r"[\s\S]"
+            self.pattern = re.compile(r"[\s\S]")
 
         if skip_str:
             self.skip_char_set = self.get_valid_char_set(skip_str)
         else:
             self.skip_char_set = set()
 
-        self.seed = seed
+        random.seed(seed)
+        
         # 创建 Subsetter 对象
         options = Options()
         options.ignore_missing_glyphs = True  # 忽略缺少的字符
@@ -42,12 +45,12 @@ class FontEncryptor:
         pass
 
     def get_valid_char_set(self,text: str):
-        char_set = set(re.findall(self.pattern, text))
+        char_set = set(self.pattern.findall(text))
         if not char_set:
             raise ValueError(f"无有效字符")
         return char_set
 
-    def trim_font(self, text: str, fontNumber=0):
+    def get_trimmed_font(self, text: str, fontNumber=0):
         font = TTFont(self.font_path, fontNumber = fontNumber) # ttc类型字体需要指定fontNumber
         self.subsetter.populate(text=text)
         self.subsetter.subset(font)
@@ -57,83 +60,109 @@ class FontEncryptor:
         char_set = sorted(self.get_valid_char_set(text) - self.skip_char_set)
         # 生成随机映射
         shuffled_chars = list(char_set)
-        random.seed(self.seed)
         random.shuffle(shuffled_chars)
         char_map:dict[str, str] = dict(zip(char_set, shuffled_chars))
         return char_map
 
     def encrypt_text(self, text: str, char_map: Dict[str, str]):
-        encrypt_char = lambda c : char_map.get(c, c) # 如果字符在映射表中，替换为原文；否则保持原样
-        return ''.join(encrypt_char(c) for c in text)
+        translation_table = str.maketrans(char_map)
+        return text.translate(translation_table)
 
     def decrypt_text(self, text: str, char_map: Dict[str, str]):
         decrypt_map = {v: k for k, v in char_map.items()}
-        decrypt_char = lambda c : decrypt_map.get(c, c)
-        return ''.join(decrypt_char(c) for c in text)
+        translation_table = str.maketrans(decrypt_map)
+        return text.translate(translation_table)
 
-    def generate_decrypt_font(self, font: TTFont, char_map: Dict[str, str]):
-        decrypt_font = copy.deepcopy(font)
+    def convert_to_decrypt_font(self, font: TTFont, char_map: Dict[str, str]):
         decrypt_map = {v: k for k, v in char_map.items()}
         # 获取 cmap 表
-        cmap = decrypt_font.getBestCmap()
-        glyph_set = decrypt_font.getGlyphSet()
+        cmap = font.getBestCmap()
+        glyph_set = font.getGlyphSet()
         # 统一处理字形表
-        glyph_table = getattr(glyph_set, 'glyfTable', None) or getattr(glyph_set, 'charStrings', None)
-        if not glyph_table:
+        if table := getattr(glyph_set, 'glyfTable', None):
+            glyf = True
+        elif table := getattr(glyph_set, 'charStrings', None):
+            glyf = False
+        else:
             raise ValueError("字体中不存在有效字形表")
-        temp_table = copy.deepcopy(glyph_table)
+        glyph_cache = {}
         # 交换字形
         for char, new_char in decrypt_map.items():
             glyph_name = cmap.get(ord(char))
             new_glyph_name = cmap.get(ord(new_char))
-            if glyph_name and new_glyph_name:
-                glyph_table[glyph_name] = temp_table[new_glyph_name]
-        return decrypt_font
+            if glyf:
+                # 这里访问 table__g_l_y_f 类型的元素要用 .glyphs 来访问
+                # 直接使用 glyph_table[galyph_name] 会导致额外执行 glyph.expand, 有巨额时间开销
+                if new_glyph_name in glyph_cache:
+                    table.glyphs[glyph_name] = glyph_cache[new_glyph_name]
+                else:
+                    glyph_cache[glyph_name] = table.glyphs[glyph_name]
+                    table.glyphs[glyph_name] = table.glyphs[new_glyph_name]
+            else:
+                if new_glyph_name in glyph_cache:
+                    table[glyph_name] = glyph_cache[new_glyph_name]
+                else:
+                    glyph_cache[glyph_name] = table[glyph_name]
+                    table[glyph_name] = table[new_glyph_name]
 
-    def distortGlyphs(self, font: TTFont, charSet: Union[Iterable[str],None] = None, noise=1, frequency=0.2):
+    def _add_noise_glyf(self, g: Glyph, table, frequency, noise):
+        '''为 glyf 字形添加扰动'''
+        if not g.isComposite():
+            coordinates, end_pts, flags = g.getCoordinates(table)
+            num_points = len(coordinates)
+            num_affected = max(1, int(num_points * frequency)) if num_points else 0
+            # Generate random unique indices
+            affected_indices = set()
+            max_attempts = num_points * 2
+            while len(affected_indices) < num_affected:
+                if len(affected_indices) >= num_points:
+                    break
+                index = fastrand.pcg32bounded(num_points)
+                affected_indices.add(index)
+                if max_attempts <= 0:
+                    break
+                max_attempts -= 1
+
+            for i in affected_indices:
+                dx = fastrand.pcg32bounded(2*noise+1)-noise
+                dy = fastrand.pcg32bounded(2*noise+1)-noise
+                x, y = coordinates[i]
+                coordinates[i] = (x + dx, y + dy)
+
+    def _add_noise_cff(self, s: T2CharString, table, frequency, noise):
+        '''为 CFF 字形添加扰动'''
+        commands = programToCommands(s.program)
+        indices = [
+            index for index, (command, params) in enumerate(commands)
+            if command in ["rmoveto", "hmoveto", "vmoveto", "vlineto", "hlineto"]
+        ]
+        num_affected = max(1, int(len(indices) * frequency)) if indices else 0
+        indices_affected = random.sample(indices, num_affected)
+        for i in indices_affected:
+            _, args = commands[i]
+            if args:
+                args[fastrand.pcg32bounded(len(args))] += fastrand.pcg32bounded(2*noise+1)-noise
+        s.setProgram(commandsToProgram(commands))
+
+    def distortFont(self, font: TTFont, charSet: Union[Iterable[str],None] = None, noise=1, frequency=0.2):
         '''为字形添加轻微扰动'''
-        font = copy.deepcopy(font)
         glyph_set = font.getGlyphSet()
         if (glyph_table := getattr(glyph_set, 'glyfTable', None)):
-            def _add_noise_glyf(g: Glyph, table):
-                if not g.isComposite():
-                    coordinates, end_pts, flags = g.getCoordinates(table)
-                    num_points = len(coordinates)
-                    num_affected = max(1, int(num_points * frequency)) if num_points else 0
-                    affected_indices = random.sample(range(num_points), num_affected)
-                    for i in affected_indices:
-                        dx = random.randint(-noise, noise)
-                        dy = random.randint(-noise, noise)
-                        coordinates[i] = (coordinates[i][0] + dx, coordinates[i][1] + dy)
-            add_noise = _add_noise_glyf
+            add_noise = self._add_noise_glyf
         elif(glyph_table := getattr(glyph_set, 'charStrings', None)):
-            def _add_noise_cff(s: T2CharString, table):
-                commands = programToCommands(s.program)
-                indices = [
-                    index for index, (command, params) in enumerate(commands)
-                    if command in ["rmoveto", "hmoveto", "vmoveto", "vlineto","hlineto"]
-                ]
-                num_affected = max(1, int(len(indices) * frequency)) if indices else 0
-                indices_affected = random.sample(indices, num_affected)
-                for i in indices_affected:
-                    _, args = commands[i]
-                    if args:
-                        args[random.randint(0, len(args) - 1)] += random.randint(-noise, noise)
-                s.setProgram(commandsToProgram(commands))
-            add_noise = _add_noise_cff
+            add_noise = self._add_noise_cff
         else:
             raise ValueError("字体中不存在有效字形表")
         
         if charSet is None:
-            for glyph_name in font.getGlyphOrder():
-                add_noise(glyph_table[glyph_name], glyph_table)
+            order = font.getGlyphOrder()
+            for glyph_name in order:
+                add_noise(glyph_table[glyph_name], glyph_table, frequency, noise)
         else:
             cmap = font.getBestCmap()
             for char in set(charSet):
                 glyph_name = cmap.get(ord(char))
-                add_noise(glyph_table[glyph_name], glyph_table)
-        return font
-
+                add_noise(glyph_table[glyph_name], glyph_table, frequency, noise)
 
 def main():
     base_path = os.path.abspath(sys.argv[0])
@@ -184,7 +213,7 @@ def main():
                 add_set.add(t)
             if t in text_set:
                 add_set.add(c)
-        trimmed_font = encryptor.trim_font(''.join(text_set.union(add_set)))
+        trimmed_font = encryptor.get_trimmed_font(''.join(text_set.union(add_set)))
 
         # 生成char map
         if args.char_map:
@@ -200,11 +229,12 @@ def main():
 
         # 生成解密字体，如果以b64结尾，则直接生成其 woff 格式的 base64 文本
         if args.font_output:
-            decrypt_font = encryptor.generate_decrypt_font(trimmed_font, char_map)
+            encryptor.convert_to_decrypt_font(trimmed_font, char_map)
+            decrypt_font = trimmed_font
 
             # 为字体添加扰动，默认为大小1，频率0.2的扰动
             if args.noise:
-                decrypt_font = encryptor.distortGlyphs(decrypt_font, char_map.values(), noise=1, frequency=0.2)
+                encryptor.distortFont(decrypt_font, char_map.values(), noise=1, frequency=0.2)
 
             if(args.font_output.endswith('.b64')):
                 decrypt_font.flavor = 'woff'
