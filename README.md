@@ -20,6 +20,7 @@
 
 ```bash
 pip install fonttools
+pip install fastrand
 ```
 
 ## 直接使用 `python encryptor.py` 或 `encryptor.exe` 的注意事项
