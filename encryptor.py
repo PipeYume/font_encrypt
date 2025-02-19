@@ -11,6 +11,12 @@ import random
 import json
 import os, sys, io, base64
 import fastrand
+import time, hashlib
+
+seed_input = f"{time.time_ns()}_{os.getpid()}_{os.urandom(16)}"
+seed_value = int(hashlib.sha256(seed_input.encode()).hexdigest(), 16) & ((1 << 64) - 1)
+fastrand.pcg32_seed(seed_value)
+
 # from fontTools.ttLib.tables._g_l_y_f import table__g_l_y_f
 # from fontTools.cffLib import CharStrings
 
