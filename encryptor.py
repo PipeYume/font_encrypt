@@ -47,7 +47,7 @@ class FontEncryptor:
         return char_set
 
     def get_trimmed_font(self,font_path: PathLike, text: str, fontNumber=0):
-        font = load_font(font_path, Options(font_number=0))
+        font = load_font(font_path, Options(font_number=fontNumber))
         self.subsetter.populate(text=text)
         self.subsetter.subset(font)
         return font
